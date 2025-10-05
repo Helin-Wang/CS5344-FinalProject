@@ -371,9 +371,9 @@ if __name__ == "__main__":
     print("="*80)
     
     # Data paths
-    train_path = '/Users/wanghelin/Documents/course/CS5344/project/dataset/loans_train.csv'
-    val_path = '/Users/wanghelin/Documents/course/CS5344/project/dataset/loans_valid.csv'
-    test_path = '/Users/wanghelin/Documents/course/CS5344/project/dataset/loans_test.csv'
+    train_path = './dataset/loans_train.csv'
+    val_path = './dataset/loans_valid.csv'
+    test_path = './dataset/loans_test.csv'
     
     # Example 1: Train IsolationForest using the convenience function (recommended)
     print("\n" + "="*60)
