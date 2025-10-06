@@ -164,8 +164,18 @@ def train_anomaly_detection_model(
         params = dict(zip(all_keys, values))
         
         try:
-            # Create and fit model
-            model = model_class(random_state=random_state, n_jobs=-1, **params)
+            # Create and fit model with model-specific parameters
+            model_kwargs = params.copy()
+            
+            # Add common parameters that most models support
+            if hasattr(model_class, 'random_state'):
+                model_kwargs['random_state'] = random_state
+            
+            # Add n_jobs for models that support it
+            if hasattr(model_class, 'n_jobs'):
+                model_kwargs['n_jobs'] = -1
+            
+            model = model_class(**model_kwargs)
             model.fit(X_train_processed)
             
             # Evaluate on validation set
@@ -208,6 +218,10 @@ def train_anomaly_detection_model(
         print(f"\nHyperparameter tuning completed!")
         print(f"Best parameters: {best_params}")
         print(f"Best validation score: {best_score:.4f}")
+    
+    # Check if any valid models were found
+    if best_model is None:
+        raise ValueError("No valid parameter combinations found. Please check your parameter grid and model compatibility.")
     
     # Final validation evaluation
     final_val_scores, final_val_roc, final_val_ap, final_val_precision_at_k = evaluate_scores(
