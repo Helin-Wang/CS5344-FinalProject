@@ -458,24 +458,17 @@ if __name__ == "__main__":
         for i, (_, row) in enumerate(top_5_features.iterrows(), 1):
             print(f"{i}. {row['feature']:<30} {row['importance']:.4f}")
     
-    # Example 2: Train OneClassSVM with custom parameters
+    # Example 2: Train OneClassSVM
     print("\n" + "="*60)
-    print("EXAMPLE 2: Training OneClassSVM (Custom Parameters)")
+    print("EXAMPLE 2: Training OneClassSVM")
     print("="*60)
-    
-    # Custom parameter grid for OneClassSVM
-    custom_param_grid = {
-        "kernel": ['rbf', 'poly'],
-        "gamma": ['scale', 0.1],
-        "nu": [0.1, 0.15, 0.2]
-    }
     
     results_ocsvm = train_model_by_name(
         model_name='OneClassSVM',
         train_data_path=train_path,
         val_data_path=val_path,
         test_data_path=test_path,
-        param_grid=custom_param_grid,
+        #param_grid=custom_param_grid,
         save_model_path='results/best_ocsvm_model.pkl',
         save_submission_path='results/ocsvm_submission.csv',
         verbose=True
