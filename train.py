@@ -1,4 +1,3 @@
-from utils import make_preprocessing_pipeline, split_dataset, evaluate_scores, decision_function_to_probability   
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.svm import OneClassSVM
@@ -7,9 +6,11 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 import numpy as np
 import joblib
 from itertools import product
-from typing import Dict, Any, Tuple, Optional, Callable
+from typing import Dict, Any, Optional, Callable
 import warnings
-
+from utils.preprocess import make_preprocessing_pipeline, split_dataset
+from utils.eval import evaluate_scores, decision_function_to_probability
+from utils.feature_importance import analyze_feature_importance
 # Predefined parameter grids for common anomaly detection models
 DEFAULT_PARAM_GRIDS = {
     'IsolationForest': {
@@ -27,7 +28,8 @@ DEFAULT_PARAM_GRIDS = {
     'LocalOutlierFactor': {
         "n_neighbors": [10, 20, 30, 50],
         "algorithm": ['auto', 'ball_tree', 'kd_tree', 'brute'],
-        "contamination": [0.08, 0.1, 0.12, 0.15, 0.18]
+        #"contamination": [0.08, 0.1, 0.12, 0.15, 0.18],
+        "novelty": [True]
     }
 }
 
@@ -65,6 +67,7 @@ def get_model_class(model_name: str):
         raise ValueError(f"Unknown model: {model_name}. Available models: {list(model_classes.keys())}")
     return model_classes[model_name]
 
+
 def train_anomaly_detection_model(
     model_class,
     param_grid: Dict[str, Any],
@@ -76,6 +79,8 @@ def train_anomaly_detection_model(
     probability_methods: list = None,
     save_model_path: str = None,
     save_submission_path: str = None,
+    analyze_importance: bool = True,
+    importance_top_n: int = 20,
     verbose: bool = True,
     random_state: int = 42
 ) -> Dict[str, Any]:
@@ -93,6 +98,8 @@ def train_anomaly_detection_model(
         probability_methods: List of probability conversion methods to test (default: ['minmax', 'zscore', 'quantile', 'robust'])
         save_model_path: Path to save the best model (default: 'results/best_model.pkl')
         save_submission_path: Path to save submission file (default: 'results/submission.csv')
+        analyze_importance: Whether to analyze feature importance (default: True)
+        importance_top_n: Number of top features to analyze (default: 20)
         verbose: Whether to print progress information
         random_state: Random state for reproducibility
         
@@ -104,6 +111,7 @@ def train_anomaly_detection_model(
         - 'results_df': DataFrame with all parameter combinations and scores
         - 'test_predictions': Test set anomaly probabilities
         - 'validation_metrics': Final validation metrics
+        - 'feature_importance': Feature importance analysis results
     """
     
     # Set defaults
@@ -203,7 +211,7 @@ def train_anomaly_detection_model(
                 best_params = params
                 if verbose:
                     print(f"New best score: {best_score:.4f} (iteration {i+1})")
-                    print(f"  ROC-AUC: {val_roc:.4f}, PR-AUC: {val_ap:.4f}, Precision@k: {val_precision_at_k:.4f}")
+                print(f"  ROC-AUC: {val_roc:.4f}, PR-AUC: {val_ap:.4f}, Precision@k: {val_precision_at_k:.4f}")
             
             # Progress reporting
             if verbose and ((i + 1) % 50 == 0 or (i + 1) == total_combinations):
@@ -303,6 +311,35 @@ def train_anomaly_detection_model(
         if verbose:
             print(f"Saved submission to: {save_submission_path}")
     
+    # Feature importance analysis
+    feature_importance_results = None
+    if analyze_importance:
+        if verbose:
+            print(f"\nAnalyzing feature importance...")
+        
+        # Get model name for importance analysis
+        model_name = model_class.__name__
+        
+        feature_importance_results = analyze_feature_importance(
+            model=best_model,
+            model_name=model_name,
+            X_train=X_train_processed,
+            X_val=X_val_processed,
+            y_val=y_val,
+            top_n=importance_top_n,
+            save_plot=True
+        )
+        
+        if verbose and feature_importance_results['top_features'] is not None:
+            print(f"Feature importance analysis completed!")
+            print(f"Method used: {feature_importance_results['importance_method']}")
+            print(f"\nTop {importance_top_n} most important features:")
+            for i, (_, row) in enumerate(feature_importance_results['top_features'].iterrows(), 1):
+                print(f"{i:2d}. {row['feature']:<30} {row['importance']:.4f}")
+            
+            if 'plot_path' in feature_importance_results:
+                print(f"Feature importance plot saved to: {feature_importance_results['plot_path']}")
+    
     # Create results summary
     results_df = pd.DataFrame(results)
     
@@ -314,7 +351,8 @@ def train_anomaly_detection_model(
         'test_predictions': test_predictions,
         'validation_metrics': validation_metrics,
         'best_prob_method': best_prob_method,
-        'preprocessing_pipeline': preprocess
+        'preprocessing_pipeline': preprocess,
+        'feature_importance': feature_importance_results
     }
 
 def train_model_by_name(
@@ -328,6 +366,8 @@ def train_model_by_name(
     probability_methods: list = None,
     save_model_path: str = None,
     save_submission_path: str = None,
+    analyze_importance: bool = True,
+    importance_top_n: int = 20,
     verbose: bool = True,
     random_state: int = 42
 ) -> Dict[str, Any]:
@@ -345,11 +385,13 @@ def train_model_by_name(
         probability_methods: List of probability conversion methods to test
         save_model_path: Path to save the best model
         save_submission_path: Path to save submission file
+        analyze_importance: Whether to analyze feature importance (default: True)
+        importance_top_n: Number of top features to analyze (default: 20)
         verbose: Whether to print progress information
         random_state: Random state for reproducibility
         
     Returns:
-        Dictionary containing training results
+        Dictionary containing training results including feature importance
     """
     
     # Get model class and default parameter grid
@@ -374,6 +416,8 @@ def train_model_by_name(
         probability_methods=probability_methods,
         save_model_path=save_model_path,
         save_submission_path=save_submission_path,
+        analyze_importance=analyze_importance,
+        importance_top_n=importance_top_n,
         verbose=verbose,
         random_state=random_state
     )
@@ -407,6 +451,13 @@ if __name__ == "__main__":
     print(f"Best validation score: {results_if['best_score']:.4f}")
     print(f"Best probability method: {results_if['best_prob_method']}")
     
+    # Display feature importance if available
+    if results_if['feature_importance'] and results_if['feature_importance']['top_features'] is not None:
+        print(f"\nTop 5 most important features:")
+        top_5_features = results_if['feature_importance']['top_features'].head(5)
+        for i, (_, row) in enumerate(top_5_features.iterrows(), 1):
+            print(f"{i}. {row['feature']:<30} {row['importance']:.4f}")
+    
     # Example 2: Train OneClassSVM with custom parameters
     print("\n" + "="*60)
     print("EXAMPLE 2: Training OneClassSVM (Custom Parameters)")
@@ -434,6 +485,13 @@ if __name__ == "__main__":
     print(f"Best parameters: {results_ocsvm['best_params']}")
     print(f"Best validation score: {results_ocsvm['best_score']:.4f}")
     
+    # Display feature importance if available
+    if results_ocsvm['feature_importance'] and results_ocsvm['feature_importance']['top_features'] is not None:
+        print(f"\nTop 5 most important features:")
+        top_5_features = results_ocsvm['feature_importance']['top_features'].head(5)
+        for i, (_, row) in enumerate(top_5_features.iterrows(), 1):
+            print(f"{i}. {row['feature']:<30} {row['importance']:.4f}")
+    
     # Example 3: Train LocalOutlierFactor using the full function
     print("\n" + "="*60)
     print("EXAMPLE 3: Training LocalOutlierFactor (Full Function)")
@@ -453,6 +511,13 @@ if __name__ == "__main__":
     print(f"\nLocalOutlierFactor Results:")
     print(f"Best parameters: {results_lof['best_params']}")
     print(f"Best validation score: {results_lof['best_score']:.4f}")
+    
+    # Display feature importance if available
+    if results_lof['feature_importance'] and results_lof['feature_importance']['top_features'] is not None:
+        print(f"\nTop 5 most important features:")
+        top_5_features = results_lof['feature_importance']['top_features'].head(5)
+        for i, (_, row) in enumerate(top_5_features.iterrows(), 1):
+            print(f"{i}. {row['feature']:<30} {row['importance']:.4f}")
     
     # Compare all models
     print("\n" + "="*60)
